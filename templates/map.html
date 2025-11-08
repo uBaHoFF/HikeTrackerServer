@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>HikeTracker Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body { margin:0; height:100%; }
+    #map { width:100%; height:100%; background:#000; }
+    .leaflet-tooltip { background:rgba(20,20,20,0.8); color:#fff; border:0; box-shadow:none; }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+const map = L.map('map').setView([42.7, 25.3], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let liveLine = null, liveMarker = null;
+
+// Generate distinct color for each track
+function randColor() {
+  const h = Math.floor(Math.random()*360);
+  return `hsl(${h}, 80%, 60%)`;
+}
+
+// Check if filename looks like DD_MM_YYYY
+function isDateName(name) {
+  return /^\d{2}_\d{2}_\d{4}$/.test(name);
+}
+
+// Load all historic tracks
+async function loadTracks() {
+  const res = await fetch('/data');
+  const list = await res.json();
+  for (const t of list) {
+    const file = t.file;
+    const name = t.name;
+    const col = randColor();
+    const resp = await fetch('/track/' + file);
+    const js = await resp.json();
+    const pts = js.points || [];
+    if (pts.length < 2) continue;
+    const latlngs = pts.map(p => [p.lat, p.lon]);
+    const line = L.polyline(latlngs, {color:col, weight:2, opacity:0.5}).addTo(map);
+    if (isDateName(name)) {
+      line.bindTooltip(name, {sticky:true, opacity:0.9});
+    }
+  }
+}
+loadTracks();
+
+// Poll live track
+async function pollLive() {
+  try {
+    const res = await fetch('/track/live.json?_=' + Date.now());
+    const js = await res.json();
+    const pts = js.points || [];
+    if (pts.length < 2) return;
+    const latlngs = pts.map(p => [p.lat, p.lon]);
+    if (!liveLine) {
+      liveLine = L.polyline(latlngs, {color:'lime', weight:3}).addTo(map);
+      liveMarker = L.circleMarker(latlngs.at(-1), {radius:6, color:'lime', fill:true}).addTo(map);
+    } else {
+      liveLine.setLatLngs(latlngs);
+      liveMarker.setLatLng(latlngs.at(-1));
+    }
+  } catch(e) {}
+}
+setInterval(pollLive, 10000);
+pollLive();
+</script>
+</body>
+</html>
