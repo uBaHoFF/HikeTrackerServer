@@ -1,22 +1,13 @@
 from flask import Flask, request, send_from_directory, jsonify, render_template
 from datetime import datetime
-import os, json, math, glob, time
+import os, json, glob, time
 
 app = Flask(__name__)
 
 DATA_DIR = "tracks"
 os.makedirs(DATA_DIR, exist_ok=True)
 LIVE_FILE = os.path.join(DATA_DIR, "live.json")
-PING_FILE = os.path.join(DATA_DIR, "ping.json")
-
-# ---------------- Haversine (unused here but kept) ----------------
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371000.0
-    import math as m
-    dLat = m.radians(lat2 - lat1)
-    dLon = m.radians(lon2 - lon1)
-    a = m.sin(dLat/2)**2 + m.cos(m.radians(lat1))*m.cos(m.radians(lat2))*m.sin(dLon/2)**2
-    return 2*R*m.atan2(m.sqrt(a), m.sqrt(1-a))
+LAST_FILE = os.path.join(DATA_DIR, "last_upload.json")
 
 # ---------------- Upload points ----------------
 @app.route("/upload", methods=["POST"])
@@ -43,31 +34,37 @@ def upload():
         with open(fpath, "w") as f:
             json.dump({"points": existing}, f)
 
-        return "OK"
-    except Exception as e:
-        return str(e), 500
-
-# ---------------- Heartbeat ----------------
-@app.route("/ping", methods=["POST"])
-def ping():
-    try:
-        with open(PING_FILE, "w") as f:
+        # Record last upload timestamp
+        with open(LAST_FILE, "w") as f:
             json.dump({"ts": time.time()}, f)
+
         return "OK"
     except Exception as e:
         return str(e), 500
 
-@app.route("/ping/status")
-def ping_status():
+# ---------------- Upload status ----------------
+@app.route("/status")
+def status():
     try:
-        if not os.path.exists(PING_FILE):
-            return jsonify({"alive": False, "since": None})
-        with open(PING_FILE, "r") as f:
+        if not os.path.exists(LAST_FILE):
+            return jsonify({"age_min": None, "next_min": None, "color": "red"})
+        with open(LAST_FILE, "r") as f:
             t = json.load(f)["ts"]
         delta = time.time() - t
-        return jsonify({"alive": delta < 300, "since": int(delta)})  # 5 minutes
-    except Exception:
-        return jsonify({"alive": False, "since": None})
+        age_min = int(delta / 60)
+        next_min = max(0, 30 - age_min)
+        color = "green"
+        if age_min > 45:
+            color = "orange"
+        if age_min > 90:
+            color = "red"
+        return jsonify({
+            "age_min": age_min,
+            "next_min": next_min,
+            "color": color
+        })
+    except Exception as e:
+        return jsonify({"age_min": None, "next_min": None, "color": "red", "error": str(e)})
 
 # ---------------- Map & data ----------------
 @app.route("/")
@@ -80,7 +77,7 @@ def list_data():
     result = []
     for f in files:
         base = os.path.basename(f)
-        if base == "live.json" or base == "ping.json":
+        if base in ("live.json", "last_upload.json"):
             continue
         name = os.path.splitext(base)[0]
         try:
