@@ -16,13 +16,11 @@
       background: rgba(30,30,30,0.8); border: 1px solid rgba(255,255,255,0.2);
     }
     .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
-    .dot.green { background:#2ecc71; }
-    .dot.red { background:#e74c3c; }
   </style>
 </head>
 <body>
 <div id="map"></div>
-<div class="status-pill"><span id="dot" class="dot red"></span><span id="stat">Offline</span></div>
+<div class="status-pill"><span id="dot" class="dot"></span><span id="stat">Loading...</span></div>
 <script>
 const map = L.map('map').setView([42.7, 25.3], 7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -81,24 +79,30 @@ async function pollLive() {
 setInterval(pollLive, 10000);
 pollLive();
 
-// Heartbeat indicator
-async function pollPing() {
+// Upload status
+async function pollStatus() {
   try {
-    const res = await fetch('/ping/status?_=' + Date.now());
+    const res = await fetch('/status?_=' + Date.now());
+    if (!res.ok) return;
     const js = await res.json();
     const dot = document.getElementById('dot');
     const stat = document.getElementById('stat');
-    if (js.alive) {
-      dot.className = 'dot green';
-      stat.textContent = 'Online';
-    } else {
-      dot.className = 'dot red';
-      stat.textContent = 'Offline';
+    let color = js.color || "gray";
+    dot.style.background = color;
+    if (js.age_min == null) {
+      stat.textContent = "No uploads yet";
+      return;
     }
-  } catch(e) {}
+    stat.textContent = `Last upload: ${js.age_min} min ago | Next: ${js.next_min} min`;
+  } catch(e) {
+    const dot = document.getElementById('dot');
+    const stat = document.getElementById('stat');
+    dot.style.background = "gray";
+    stat.textContent = "Error loading status";
+  }
 }
-setInterval(pollPing, 30000);
-pollPing();
+setInterval(pollStatus, 30000);
+pollStatus();
 </script>
 </body>
 </html>
