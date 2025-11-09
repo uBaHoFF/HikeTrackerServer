@@ -1,28 +1,24 @@
-# ============================================================
-# HikeTracker Flask Server
-# ============================================================
-
 from flask import Flask, request, send_from_directory, jsonify, render_template
 from datetime import datetime
-import os, json, math, glob
+import os, json, math, glob, time
 
 app = Flask(__name__)
 
 DATA_DIR = "tracks"
 os.makedirs(DATA_DIR, exist_ok=True)
 LIVE_FILE = os.path.join(DATA_DIR, "live.json")
+PING_FILE = os.path.join(DATA_DIR, "ping.json")
 
-# ----------------------------------------------------------------
-# Helper: compute rough distance (to detect same trail overlaps)
+# ---------------- Haversine (unused here but kept) ----------------
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371000.0
-    dLat = math.radians(lat2 - lat1)
-    dLon = math.radians(lon2 - lon1)
-    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dLon/2)**2
-    return 2*R*math.atan2(math.sqrt(a), math.sqrt(1-a))
+    import math as m
+    dLat = m.radians(lat2 - lat1)
+    dLon = m.radians(lon2 - lon1)
+    a = m.sin(dLat/2)**2 + m.cos(m.radians(lat1))*m.cos(m.radians(lat2))*m.sin(dLon/2)**2
+    return 2*R*m.atan2(m.sqrt(a), m.sqrt(1-a))
 
-# ----------------------------------------------------------------
-# Endpoint: receive new GPS batches from Android app
+# ---------------- Upload points ----------------
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
@@ -31,7 +27,7 @@ def upload():
         if not pts:
             return "no points", 400
 
-        # Save live file
+        # Save live for map
         with open(LIVE_FILE, "w") as f:
             json.dump({"points": pts}, f)
 
@@ -51,27 +47,47 @@ def upload():
     except Exception as e:
         return str(e), 500
 
-# ----------------------------------------------------------------
-# Serve the map page
+# ---------------- Heartbeat ----------------
+@app.route("/ping", methods=["POST"])
+def ping():
+    try:
+        with open(PING_FILE, "w") as f:
+            json.dump({"ts": time.time()}, f)
+        return "OK"
+    except Exception as e:
+        return str(e), 500
+
+@app.route("/ping/status")
+def ping_status():
+    try:
+        if not os.path.exists(PING_FILE):
+            return jsonify({"alive": False, "since": None})
+        with open(PING_FILE, "r") as f:
+            t = json.load(f)["ts"]
+        delta = time.time() - t
+        return jsonify({"alive": delta < 300, "since": int(delta)})  # 5 minutes
+    except Exception:
+        return jsonify({"alive": False, "since": None})
+
+# ---------------- Map & data ----------------
 @app.route("/")
 def map_page():
     return render_template("map.html")
 
-# ----------------------------------------------------------------
-# Serve all track JSONs (live + historical)
 @app.route("/data")
 def list_data():
     files = sorted(glob.glob(os.path.join(DATA_DIR, "*.json")))
     result = []
     for f in files:
         base = os.path.basename(f)
+        if base == "live.json" or base == "ping.json":
+            continue
         name = os.path.splitext(base)[0]
         try:
             with open(f, "r") as fh:
                 js = json.load(fh)
                 pts = js.get("points", [])
                 if pts:
-                    # Extract representative coords for overlap grouping
                     lat = sum(p["lat"] for p in pts) / len(pts)
                     lon = sum(p["lon"] for p in pts) / len(pts)
                     result.append({"file": base, "name": name, "lat": lat, "lon": lon})
@@ -83,6 +99,5 @@ def list_data():
 def get_track(fname):
     return send_from_directory(DATA_DIR, fname)
 
-# ----------------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
