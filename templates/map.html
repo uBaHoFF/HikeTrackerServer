@@ -10,10 +10,19 @@
     html, body { margin:0; height:100%; }
     #map { width:100%; height:100%; background:#000; }
     .leaflet-tooltip { background:rgba(20,20,20,0.8); color:#fff; border:0; box-shadow:none; }
+    .status-pill {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      padding: 6px 10px; border-radius: 12px; font: 12px/1.2 sans-serif; color: #fff;
+      background: rgba(30,30,30,0.8); border: 1px solid rgba(255,255,255,0.2);
+    }
+    .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+    .dot.green { background:#2ecc71; }
+    .dot.red { background:#e74c3c; }
   </style>
 </head>
 <body>
 <div id="map"></div>
+<div class="status-pill"><span id="dot" class="dot red"></span><span id="stat">Offline</span></div>
 <script>
 const map = L.map('map').setView([42.7, 25.3], 7);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -22,18 +31,15 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 let liveLine = null, liveMarker = null;
 
-// Generate distinct color for each track
 function randColor() {
   const h = Math.floor(Math.random()*360);
   return `hsl(${h}, 80%, 60%)`;
 }
-
-// Check if filename looks like DD_MM_YYYY
 function isDateName(name) {
   return /^\d{2}_\d{2}_\d{4}$/.test(name);
 }
 
-// Load all historic tracks
+// Historic tracks
 async function loadTracks() {
   const res = await fetch('/data');
   const list = await res.json();
@@ -54,10 +60,11 @@ async function loadTracks() {
 }
 loadTracks();
 
-// Poll live track
+// Live
 async function pollLive() {
   try {
     const res = await fetch('/track/live.json?_=' + Date.now());
+    if (!res.ok) return;
     const js = await res.json();
     const pts = js.points || [];
     if (pts.length < 2) return;
@@ -73,6 +80,25 @@ async function pollLive() {
 }
 setInterval(pollLive, 10000);
 pollLive();
+
+// Heartbeat indicator
+async function pollPing() {
+  try {
+    const res = await fetch('/ping/status?_=' + Date.now());
+    const js = await res.json();
+    const dot = document.getElementById('dot');
+    const stat = document.getElementById('stat');
+    if (js.alive) {
+      dot.className = 'dot green';
+      stat.textContent = 'Online';
+    } else {
+      dot.className = 'dot red';
+      stat.textContent = 'Offline';
+    }
+  } catch(e) {}
+}
+setInterval(pollPing, 30000);
+pollPing();
 </script>
 </body>
 </html>
