@@ -13,34 +13,53 @@ LAST_FILE = os.path.join(DATA_DIR, "last_upload.json")
 @app.route("/upload", methods=["POST"])
 def upload():
     try:
-        data = request.get_json(force=True)
-        pts = data.get("points", [])
-        if not pts:
-            return "no points", 400
+        # Safe JSON parsing
+        data = request.get_json(force=True, silent=True)
+        if not data or "points" not in data:
+            return jsonify({"error": "invalid"}), 400
 
-        # Save live for map
+        pts = data["points"]
+        if not isinstance(pts, list) or not pts:
+            return jsonify({"error": "no points"}), 400
+
+        # Safety limit: avoid memory overload
+        if len(pts) > 1000:
+            return jsonify({"error": "too many points"}), 413
+
+        # --- Save live file for map display ---
         with open(LIVE_FILE, "w") as f:
-            json.dump({"points": pts}, f)
+            json.dump({"points": pts[-200:]}, f)  # keep last 200 points live
 
-        # Append to today's archive
+        # --- Append to today's archive ---
         today = datetime.utcnow().strftime("%d_%m_%Y")
         fpath = os.path.join(DATA_DIR, f"{today}.json")
+        existing = []
+
         if os.path.exists(fpath):
-            with open(fpath, "r") as f:
-                existing = json.load(f).get("points", [])
-        else:
-            existing = []
+            try:
+                with open(fpath, "r") as f:
+                    existing = json.load(f).get("points", [])
+            except Exception:
+                existing = []
+
+        # extend but cap file size to avoid massive memory use
         existing.extend(pts)
+        if len(existing) > 100000:
+            existing = existing[-100000:]  # keep most recent 100k
+
         with open(fpath, "w") as f:
             json.dump({"points": existing}, f)
 
-        # Record last upload timestamp
+        # --- Record last upload timestamp ---
         with open(LAST_FILE, "w") as f:
             json.dump({"ts": time.time()}, f)
 
-        return "OK"
+        print(f"[UPLOAD] received {len(pts)} points → {today}.json")
+        return jsonify({"status": "ok", "received": len(pts)}), 200
+
     except Exception as e:
-        return str(e), 500
+        print("Upload exception:", e)
+        return jsonify({"error": str(e)}), 500
 
 # ---------------- Upload status ----------------
 @app.route("/status")
@@ -64,7 +83,10 @@ def status():
             "color": color
         })
     except Exception as e:
-        return jsonify({"age_min": None, "next_min": None, "color": "red", "error": str(e)})
+        return jsonify({
+            "age_min": None, "next_min": None,
+            "color": "red", "error": str(e)
+        })
 
 # ---------------- Map & data ----------------
 @app.route("/")
@@ -87,7 +109,12 @@ def list_data():
                 if pts:
                     lat = sum(p["lat"] for p in pts) / len(pts)
                     lon = sum(p["lon"] for p in pts) / len(pts)
-                    result.append({"file": base, "name": name, "lat": lat, "lon": lon})
+                    result.append({
+                        "file": base,
+                        "name": name,
+                        "lat": lat,
+                        "lon": lon
+                    })
         except Exception:
             continue
     return jsonify(result)
