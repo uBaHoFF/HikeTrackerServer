@@ -44,7 +44,9 @@ def upload():
             except Exception:
                 existing = []
 
-        existing.extend(pts)
+           existing.extend(pts)
+           existing.sort(key=lambda p: p["ts"])
+
 
         # Optional cap to prevent massive files
         if len(existing) > 100000:
@@ -133,5 +135,6 @@ def get_track(fname):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
 
 
