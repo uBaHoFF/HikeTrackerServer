@@ -19,7 +19,7 @@ def upload():
             return jsonify({"error": "invalid"}), 400
 
         pts = data["points"]
-        batch_id = data.get("batch_id", -1)
+        batch_id = data.get("batch_id", data.get("batch", -1))
 
         if not isinstance(pts, list) or not pts:
             return jsonify({"error": "no points"}), 400
@@ -133,4 +133,5 @@ def get_track(fname):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
 
