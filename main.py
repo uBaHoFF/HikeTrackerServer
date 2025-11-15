@@ -131,10 +131,19 @@ def list_data():
 
 @app.route("/track/<path:fname>")
 def get_track(fname):
-    return send_from_directory(DATA_DIR, fname)
+    fpath = os.path.join(DATA_DIR, fname)
+    try:
+        with open(fpath, "r") as f:
+            js = json.load(f)
+        pts = js.get("points", [])
+        pts = sorted(pts, key=lambda p: p["ts"])      # <-- FIX
+        return jsonify({"points": pts})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
 
 
 
